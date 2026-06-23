@@ -4,7 +4,7 @@ const Store = require('electron-store');
 
 // Bump when detection keyword/phrase logic changes so existing installs pick up
 // the new safer lists instead of keeping stale persisted ones.
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 /**
  * Central settings definition. Every value here is a real, wired-up control
@@ -44,7 +44,9 @@ const DEFAULTS = {
     maxClicksPerScan: 8,        // safety cap on clicks in a single scan
     interClickMs: 130,          // stagger between consecutive clicks in a burst
     clickDelayMs: 220,          // wait after detection before clicking
-    confirmDoubleScan: true,    // require two consecutive matches before clicking
+    confirmDoubleScan: false,   // require two consecutive matches before clicking
+                                // (off by default: strict matching is the safety,
+                                //  this only added latency and missed clicks)
     cooldownMs: 1500,           // per-button: don't re-click the same spot within this
     moveDurationMs: 0,          // mouse travel time (0 = instant)
     restoreCursor: true,        // return cursor to its previous spot after click
@@ -89,6 +91,7 @@ module.exports = {
       merged.detection.triggerPhrases = DEFAULTS.detection.triggerPhrases.slice();
       merged.detection.requireTriggerPhrase = DEFAULTS.detection.requireTriggerPhrase;
       merged.general.autoStartWatching = DEFAULTS.general.autoStartWatching;
+      merged.automation.confirmDoubleScan = DEFAULTS.automation.confirmDoubleScan;
       merged._schemaVersion = SCHEMA_VERSION;
       store.store = merged; // persist the migration once
     }
