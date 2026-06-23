@@ -22,7 +22,8 @@ const DEFAULTS = {
   detection: {
     scanIntervalMs: 800,        // time between screen scans (higher = lighter CPU)
     minConfidence: 60,          // minimum OCR confidence (0-100) to trust a word
-    requireActiveWindow: true,  // ONLY act while Antigravity is the focused window
+    requireActiveWindow: true,  // ONLY act inside Antigravity windows
+    onlyFocusedWindow: false,   // true = only the focused one; false = all Antigravity windows
     activeWindowKeywords: ['antigravity'], // title must contain one of these
     acceptKeywords: ['yes', 'accept', 'allow', 'approve', 'confirm'],
     rejectKeywords: ['no', 'reject', 'deny', 'cancel', 'decline'],
@@ -39,9 +40,12 @@ const DEFAULTS = {
   automation: {
     autoClick: true,            // master switch for actually clicking
     dryRun: false,              // detect + log but never move the mouse
+    multiClick: true,           // click EVERY Yes found in one pass (multiple bots)
+    maxClicksPerScan: 8,        // safety cap on clicks in a single scan
+    interClickMs: 130,          // stagger between consecutive clicks in a burst
     clickDelayMs: 220,          // wait after detection before clicking
     confirmDoubleScan: true,    // require two consecutive matches before clicking
-    cooldownMs: 1500,           // minimum gap between two auto-clicks
+    cooldownMs: 1500,           // per-button: don't re-click the same spot within this
     moveDurationMs: 0,          // mouse travel time (0 = instant)
     restoreCursor: true,        // return cursor to its previous spot after click
   },

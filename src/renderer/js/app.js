@@ -20,8 +20,9 @@ const SCHEMA = [
   },
   {
     title: 'Detection', path: 'detection', fields: [
-      { key: 'requireActiveWindow', type: 'toggle', name: 'Only inside Antigravity', desc: 'Only watch & click while the Antigravity window is focused.' },
-      { key: 'activeWindowKeywords', type: 'list', name: 'Window title contains', desc: 'The focused window title must contain one of these.' },
+      { key: 'requireActiveWindow', type: 'toggle', name: 'Only inside Antigravity', desc: 'Only watch & click inside windows whose title matches below.' },
+      { key: 'onlyFocusedWindow', type: 'toggle', name: 'Focused window only', desc: 'Off = handle prompts in every Antigravity window (multiple bots). On = only the one in front.' },
+      { key: 'activeWindowKeywords', type: 'list', name: 'Window title contains', desc: 'A window title must contain one of these to count.' },
       { key: 'scanIntervalMs', type: 'range', name: 'Scan interval', desc: 'Time between screen scans. Higher = lighter on the CPU.', min: 300, max: 3000, step: 100, unit: 'ms' },
       { key: 'minConfidence', type: 'range', name: 'OCR confidence', desc: 'Minimum confidence before a word is trusted.', min: 40, max: 95, step: 1, unit: '%' },
       { key: 'strictMatch', type: 'toggle', name: 'Strict button matching', desc: 'Only click a "Yes" that sits next to a No/Cancel or inside a prompt. Stops it clicking the word "yes" in text.' },
@@ -36,6 +37,9 @@ const SCHEMA = [
     title: 'Automation', path: 'automation', fields: [
       { key: 'autoClick', type: 'toggle', name: 'Auto-click', desc: 'Master switch — actually move the mouse and click.' },
       { key: 'dryRun', type: 'toggle', name: 'Dry run', desc: 'Detect and log, but never click. Great for testing.' },
+      { key: 'multiClick', type: 'toggle', name: 'Click all at once', desc: 'When several prompts pop up together, click every Yes in one pass.' },
+      { key: 'maxClicksPerScan', type: 'range', name: 'Max clicks per pass', desc: 'Safety cap on how many prompts are clicked in one scan.', min: 1, max: 20, step: 1, unit: '' },
+      { key: 'interClickMs', type: 'range', name: 'Stagger between clicks', desc: 'Small gap between clicks in a burst so it stays smooth.', min: 0, max: 800, step: 10, unit: 'ms' },
       { key: 'confirmDoubleScan', type: 'toggle', name: 'Double-confirm', desc: 'Require two scans in a row before clicking (more stable).' },
       { key: 'clickDelayMs', type: 'range', name: 'Click delay', desc: 'Pause after detection before clicking.', min: 0, max: 1500, step: 20, unit: 'ms' },
       { key: 'cooldownMs', type: 'range', name: 'Click cooldown', desc: 'Minimum gap between two auto-clicks.', min: 200, max: 5000, step: 100, unit: 'ms' },

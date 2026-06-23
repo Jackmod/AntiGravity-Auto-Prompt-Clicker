@@ -151,6 +151,13 @@ function isButtonPartner(accept, reject, words) {
  * @param {object} detection  detection settings slice
  * @param {{scaleX:number, scaleY:number, region:{left:number,top:number}}} geom
  */
+/**
+ * Analyze a frame and return EVERY Yes button worth clicking (so several
+ * simultaneous bot prompts are all handled), plus an optional pause signal.
+ *
+ * @returns {{clicks: Array<{point:{x,y}, matched:string, confidence:number, reason:string}>,
+ *            pause: {reason:string}|null, reason: string}}
+ */
 function analyze(ocr, detection, geom) {
   const { words, fullText } = ocr;
   const minConf = detection.minConfidence;
@@ -158,79 +165,67 @@ function analyze(ocr, detection, geom) {
 
   const acceptWords = findKeywordWords(words, detection.acceptKeywords, minConf);
   const rejectWords = findKeywordWords(words, detection.rejectKeywords, minConf);
+  const isolatedAccepts = acceptWords.filter((a) => isIsolated(a, words));
 
-  // Does the screen show a known prompt phrase (e.g. "do you want", "allow")?
   const promptPhrasePresent =
     anyKeywordInText(fullText, detection.triggerPhrases)
     || words.some((w) => anyKeywordInText(w.text, detection.triggerPhrases));
-
-  // Find an accept word that forms a real button pair with a reject word
-  // (both must be isolated, i.e. button-like, not words inside a sentence).
-  let pairedAccept = null;
-  for (const a of acceptWords) {
-    if (!isIsolated(a, words)) continue;
-    if (rejectWords.some((r) => isIsolated(r, words) && isButtonPartner(a, r, words))) {
-      if (!pairedAccept || a.confidence > pairedAccept.confidence) pairedAccept = a;
-    }
-  }
-  // Best isolated (button-like) accept word, for the phrase / non-strict paths.
-  const isolatedAccepts = acceptWords.filter((a) => isIsolated(a, words));
-  const bestAccept = isolatedAccepts.slice().sort((x, y) => y.confidence - x.confidence)[0] || null;
-
-  // For a lone accept button, confirm a real prompt phrase sits next to it.
   const anchors = findPhraseAnchors(words, detection.triggerPhrases);
-  const phraseAccept = isolatedAccepts
-    .filter((a) => nearAnchor(a, anchors))
-    .sort((x, y) => y.confidence - x.confidence)[0] || null;
 
-  // Decide what we're allowed to click:
-  //  - a genuine Yes/No button pair is the strongest signal, OR
-  //  - an isolated accept button with a prompt phrase right beside it.
-  // In non-strict mode, any confident isolated accept word is enough.
-  let target = null;
-  let why = '';
-  if (pairedAccept) { target = pairedAccept; why = `"${pairedAccept.text}" button (paired with a No/Cancel)`; }
-  else if (phraseAccept) { target = phraseAccept; why = `"${phraseAccept.text}" button in a recognized prompt`; }
-  else if (!strict && bestAccept) { target = bestAccept; why = `"${bestAccept.text}" (strict matching off)`; }
+  const toScreen = (w) => ({
+    x: Math.round(geom.region.left + w.cx * geom.scaleX),
+    y: Math.round(geom.region.top + w.cy * geom.scaleY),
+  });
 
-  // Optional extra gate: require a prompt phrase before ever clicking.
-  if (target && detection.requireTriggerPhrase && !promptPhrasePresent) {
-    target = null;
-    return { action: 'none', reason: 'Saw a Yes but no trusted prompt phrase' };
+  // Collect all distinct accept buttons. Each qualifies if it is a real button:
+  //  - paired with an isolated No/Cancel (side-by-side or stacked), or
+  //  - sitting right next to a recognized prompt phrase, or
+  //  - (non-strict) any isolated accept word.
+  const clicks = [];
+  const used = [];
+  const add = (w, why) => {
+    if (used.some((u) => Math.abs(u.cx - w.cx) <= 24 && Math.abs(u.cy - w.cy) <= 24)) return;
+    used.push(w);
+    clicks.push({
+      point: toScreen(w), matched: w.text, confidence: Math.round(w.confidence), reason: why,
+    });
+  };
+
+  const phraseGateOk = !detection.requireTriggerPhrase || promptPhrasePresent;
+  for (const a of isolatedAccepts) {
+    const paired = rejectWords.some((r) => isIsolated(r, words) && isButtonPartner(a, r, words));
+    if (paired && phraseGateOk) { add(a, `"${a.text}" button (paired with a No/Cancel)`); continue; }
+    if (nearAnchor(a, anchors)) { add(a, `"${a.text}" button in a recognized prompt`); continue; }
+    if (!strict && phraseGateOk) { add(a, `"${a.text}" button (strict matching off)`); }
   }
 
-  if (target) {
-    const x = Math.round(geom.region.left + target.cx * geom.scaleX);
-    const y = Math.round(geom.region.top + target.cy * geom.scaleY);
+  if (clicks.length) {
     return {
-      action: 'click',
-      point: { x, y },
-      matched: target.text,
-      confidence: Math.round(target.confidence),
-      reason: `Found ${why}`,
+      clicks,
+      pause: null,
+      reason: clicks.length === 1
+        ? `Found ${clicks[0].reason}`
+        : `Found ${clicks.length} Yes buttons`,
     };
   }
 
-  // A real decision prompt is on screen but we can't safely pick "Yes" ->
-  // pause so the human takes over. ("anything different -> pause".)
-  // We only treat it as a prompt when a prompt phrase or a reject button pair
-  // is present — never on a stray word in prose.
-  const rejectPairPresent = rejectWords.length > 0 && acceptWords.length > 0;
+  // No clickable Yes. If a real prompt is clearly present, pause for the human.
   if (detection.pauseOnUnknown && promptPhrasePresent && acceptWords.length === 0) {
     return {
-      action: 'pause',
-      reason: rejectWords.length
-        ? `Prompt found with only a "${rejectWords[0].text}" option — paused for you`
-        : 'A prompt appeared but no clear "Yes" — paused for you',
+      clicks: [],
+      pause: {
+        reason: rejectWords.length
+          ? `Prompt found with only a "${rejectWords[0].text}" option — paused for you`
+          : 'A prompt appeared but no clear "Yes" — paused for you',
+      },
+      reason: 'paused',
     };
   }
 
-  if (rejectPairPresent && !target) {
-    // accept + reject both present but not a confident pair/phrase — be safe.
-    return { action: 'none', reason: 'Possible prompt — waiting for a clearer match' };
+  if (rejectWords.length > 0 && acceptWords.length > 0) {
+    return { clicks: [], pause: null, reason: 'Possible prompt — waiting for a clearer match' };
   }
-
-  return { action: 'none', reason: 'No prompt on screen' };
+  return { clicks: [], pause: null, reason: 'No prompt on screen' };
 }
 
 module.exports = { analyze, normalize };

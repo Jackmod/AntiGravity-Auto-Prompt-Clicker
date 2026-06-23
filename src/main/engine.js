@@ -9,6 +9,8 @@ const activeWindow = require('./detector/active-window');
 const clicker = require('./automation/clicker');
 const logger = require('./util/logger');
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 /**
  * The watch engine. A small state machine driven by a self-scheduling loop.
  *
@@ -30,8 +32,9 @@ class Engine extends EventEmitter {
     this._busy = false;
     this._lastClickAt = 0;
     this._clickTimestamps = [];   // for rate limiting
-    this._pendingPoint = null;    // for double-scan confirmation (position-tolerant)
-    this._lastFocusOk = null;     // last known Antigravity-focus state (for logging)
+    this._pendingPoints = [];     // targets seen last scan (double-scan confirmation)
+    this._recentClicks = [];      // {x,y,time} to avoid re-clicking the same button
+    this._lastFocusOk = null;     // last known Antigravity-present state (for logging)
     this.stats = { scans: 0, clicks: 0, lastMs: 0 };
   }
 
@@ -55,13 +58,15 @@ class Engine extends EventEmitter {
   }
 
   resume() {
-    this._pendingPoint = null;
+    this._pendingPoints = [];
+    this._recentClicks = [];
     this.start();
   }
 
   stop() {
     this._clearTimer();
-    this._pendingPoint = null;
+    this._pendingPoints = [];
+    this._recentClicks = [];
     this._setState('idle');
   }
 
@@ -97,32 +102,37 @@ class Engine extends EventEmitter {
     try {
       const cfg = settings.all;
 
-      // --- Gate: only act while Antigravity is the focused window ---
-      let captureDetection = cfg.detection;
-      if (cfg.detection.requireActiveWindow) {
-        const aw = await activeWindow.getActive();
-        const focused = aw && activeWindow.titleMatches(aw.title, cfg.detection.activeWindowKeywords);
-        if (focused !== this._lastFocusOk) {
-          this._lastFocusOk = focused;
-          logger.info(focused
-            ? `Antigravity in focus — watching for prompts`
-            : 'Waiting for Antigravity to be focused…');
+      const det = cfg.detection;
+
+      // --- Gate: only act inside Antigravity windows ---
+      let matchWindows = null;
+      if (det.requireActiveWindow) {
+        if (det.onlyFocusedWindow) {
+          const aw = await activeWindow.getActive();
+          matchWindows = (aw && activeWindow.titleMatches(aw.title, det.activeWindowKeywords))
+            ? [aw] : [];
+        } else {
+          matchWindows = await activeWindow.getMatchingWindows(det.activeWindowKeywords);
         }
-        if (!focused) {
-          this._pendingPoint = null;
-          this.emit('detection', { action: 'none', reason: 'Antigravity is not focused' });
+        const present = matchWindows.length > 0;
+        if (present !== this._lastFocusOk) {
+          this._lastFocusOk = present;
+          logger.info(present
+            ? `Antigravity detected (${matchWindows.length} window${matchWindows.length > 1 ? 's' : ''}) — watching`
+            : 'Waiting for an Antigravity window…');
+        }
+        if (!present) {
+          this._pendingPoints = [];
+          this.emit('detection', { action: 'none', reason: 'No Antigravity window' });
           return; // finally{} schedules the next scan
         }
-        // Look only inside the Antigravity window: faster, and clicks can only
-        // ever land inside Antigravity.
-        const r = aw.region;
-        captureDetection = {
-          ...cfg.detection,
-          region: { mode: 'custom', x: r.left, y: r.top, width: r.width, height: r.height },
-        };
       }
 
-      const { jimp, region, scaleX, scaleY } = await capture.capture(captureDetection);
+      // Capture the full screen so prompts in every window/pane are seen, then
+      // OCR once. Clicks are filtered to Antigravity windows below.
+      const { jimp, region, scaleX, scaleY } = await capture.capture({
+        ...det, region: { mode: 'full' },
+      });
 
       if (cfg.general.showLivePreview) {
         capture.toThumbnail(jimp)
@@ -132,13 +142,21 @@ class Engine extends EventEmitter {
 
       const png = await capture.toPngBuffer(jimp);
       const result = await ocr.recognizeWords(png);
-      const decision = analyzer.analyze(result, cfg.detection, {
-        scaleX, scaleY, region,
-      });
+      const analysis = analyzer.analyze(result, det, { scaleX, scaleY, region });
+
+      // Only act on prompts located inside an Antigravity window.
+      if (matchWindows) {
+        analysis.clicks = analysis.clicks
+          .filter((c) => activeWindow.pointInWindows(c.point, matchWindows));
+      }
 
       this.stats.scans += 1;
-      await this._handleDecision(decision, cfg);
-      this.emit('detection', decision);
+      await this._handleAnalysis(analysis, cfg);
+      this.emit('detection', {
+        action: analysis.pause ? 'pause' : (analysis.clicks.length ? 'click' : 'none'),
+        reason: analysis.pause ? analysis.pause.reason : analysis.reason,
+        count: analysis.clicks.length,
+      });
     } catch (err) {
       logger.error(`Scan failed: ${err.message}`);
     } finally {
@@ -149,63 +167,73 @@ class Engine extends EventEmitter {
     }
   }
 
-  async _handleDecision(decision, cfg) {
-    if (decision.action === 'pause') {
-      this._pendingPoint = null;
-      logger.warn(decision.reason);
-      this.pause(decision.reason);
+  async _handleAnalysis(analysis, cfg) {
+    // A real prompt we can't safely resolve -> pause for the human.
+    if (analysis.pause) {
+      this._pendingPoints = [];
+      logger.warn(analysis.pause.reason);
+      this.pause(analysis.pause.reason);
       return;
     }
 
-    if (decision.action !== 'click') {
-      this._pendingPoint = null;
+    const all = analysis.clicks || [];
+    const auto = cfg.automation;
+    const TOL = 28;
+    const near = (a, b) => Math.abs(a.x - b.x) <= TOL && Math.abs(a.y - b.y) <= TOL;
+
+    if (!all.length) { this._pendingPoints = []; return; }
+
+    if (!auto.autoClick) {
+      logger.info(`Detected ${all.length} Yes button${all.length > 1 ? 's' : ''} — auto-click is off`);
+      this._pendingPoints = all.map((c) => c.point);
       return;
     }
 
-    // From here: action === 'click'
-    if (!cfg.automation.autoClick) {
-      logger.info(`Detected "${decision.matched}" button — auto-click is off`);
-      return;
-    }
-
-    // Double-scan confirmation: require the target two scans in a row, but
-    // tolerate the small pixel jitter OCR produces between frames.
-    if (cfg.automation.confirmDoubleScan) {
-      const p = decision.point;
-      const prev = this._pendingPoint;
-      const TOL = 22;
-      if (!prev || Math.abs(prev.x - p.x) > TOL || Math.abs(prev.y - p.y) > TOL) {
-        this._pendingPoint = p;
-        logger.info(`Saw "${decision.matched}" button — confirming on next scan…`);
-        return;
-      }
-      this._pendingPoint = null;
-    }
-
-    // Cooldown between clicks.
     const now = Date.now();
-    if (now - this._lastClickAt < cfg.automation.cooldownMs) return;
+    this._recentClicks = this._recentClicks.filter((r) => now - r.time < auto.cooldownMs);
+    const prev = this._pendingPoints;
 
-    // Rate limit.
-    if (!this._withinRateLimit()) {
-      this.pause(`Click rate limit (${cfg.safety.maxClicksPerMinute}/min) reached`);
+    // A target is ready if it isn't on per-button cooldown and (when enabled)
+    // was already seen on the previous scan.
+    const ready = all.filter((c) => {
+      if (this._recentClicks.some((r) => near(r, c.point))) return false;
+      if (auto.confirmDoubleScan && !prev.some((p) => near(p, c.point))) return false;
+      return true;
+    });
+    this._pendingPoints = all.map((c) => c.point); // remember for next scan
+
+    if (!ready.length) {
+      if (auto.confirmDoubleScan) {
+        logger.info(`Saw ${all.length} Yes button${all.length > 1 ? 's' : ''} — confirming on next scan…`);
+      }
       return;
     }
 
-    if (cfg.automation.dryRun) {
-      logger.action(`[DRY RUN] Would click "${decision.matched}" at (${decision.point.x}, ${decision.point.y})`);
-      this._lastClickAt = now;
-      return;
-    }
+    // Click all ready targets (a controlled burst), or just one if multiClick off.
+    const burst = (auto.multiClick ? ready : ready.slice(0, 1)).slice(0, auto.maxClicksPerScan);
+    if (auto.clickDelayMs > 0) await sleep(auto.clickDelayMs);
 
-    if (cfg.automation.clickDelayMs > 0) {
-      await new Promise((r) => setTimeout(r, cfg.automation.clickDelayMs));
+    let clicked = 0;
+    for (const c of burst) {
+      if (!this._withinRateLimit()) {
+        this.pause(`Click rate limit (${cfg.safety.maxClicksPerMinute}/min) reached`);
+        break;
+      }
+      if (auto.dryRun) {
+        logger.action(`[DRY RUN] Would click "${c.matched}" at (${c.point.x}, ${c.point.y})`);
+      } else {
+        await clicker.clickAt(c.point, auto);
+        logger.success(`Auto-confirmed "${c.matched}" at (${c.point.x}, ${c.point.y})`);
+      }
+      const t = Date.now();
+      this._recentClicks.push({ x: c.point.x, y: c.point.y, time: t });
+      this._lastClickAt = t;
+      this._clickTimestamps.push(t);
+      this.stats.clicks += 1;
+      clicked += 1;
+      if (clicked < burst.length && auto.interClickMs > 0) await sleep(auto.interClickMs);
     }
-    await clicker.clickAt(decision.point, cfg.automation);
-    this._lastClickAt = Date.now();
-    this._clickTimestamps.push(this._lastClickAt);
-    this.stats.clicks += 1;
-    logger.success(`Auto-confirmed "${decision.matched}"`);
+    if (clicked > 1) logger.info(`Handled ${clicked} prompts in one burst`);
   }
 }
 
