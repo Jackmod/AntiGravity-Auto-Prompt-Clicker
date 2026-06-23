@@ -15,14 +15,18 @@ const DEFAULTS = {
     showLivePreview: true,      // stream a small screenshot thumbnail to the UI
   },
   detection: {
-    scanIntervalMs: 900,        // time between screen scans (higher = lighter CPU)
-    minConfidence: 68,          // minimum OCR confidence (0-100) to trust a word
-    acceptKeywords: ['yes', 'accept', 'allow', 'approve', 'run', 'confirm', 'continue'],
+    scanIntervalMs: 800,        // time between screen scans (higher = lighter CPU)
+    minConfidence: 60,          // minimum OCR confidence (0-100) to trust a word
+    requireActiveWindow: true,  // ONLY act while Antigravity is the focused window
+    activeWindowKeywords: ['antigravity'], // title must contain one of these
+    acceptKeywords: ['yes', 'accept', 'allow', 'approve', 'confirm'],
     rejectKeywords: ['no', 'reject', 'deny', 'cancel', 'decline'],
-    requireTriggerPhrase: true, // only act when a known prompt phrase is on screen
+    strictMatch: true,          // only click a Yes that's paired with a No/Cancel
+                                // or inside a known prompt (avoids clicking prose)
+    requireTriggerPhrase: false, // extra safety: also require a prompt phrase to click
     triggerPhrases: [
-      'claude', 'antigravity', 'allow this', 'do you want',
-      'run command', 'apply changes', 'accept edits', 'proceed',
+      'allow this', 'do you want', 'run command', 'apply changes',
+      'accept edits', 'proceed', 'would you like', 'permission',
     ],
     pauseOnUnknown: true,       // pause when a prompt appears but no Yes is found
     region: { mode: 'full', x: 0, y: 0, width: 0, height: 0 }, // 'full' | 'custom'

@@ -5,6 +5,7 @@ const settings = require('./settings-store');
 const capture = require('./detector/screen-capture');
 const ocr = require('./detector/ocr');
 const analyzer = require('./detector/analyzer');
+const activeWindow = require('./detector/active-window');
 const clicker = require('./automation/clicker');
 const logger = require('./util/logger');
 
@@ -29,7 +30,8 @@ class Engine extends EventEmitter {
     this._busy = false;
     this._lastClickAt = 0;
     this._clickTimestamps = [];   // for rate limiting
-    this._pendingMatch = null;    // for double-scan confirmation
+    this._pendingPoint = null;    // for double-scan confirmation (position-tolerant)
+    this._lastFocusOk = null;     // last known Antigravity-focus state (for logging)
     this.stats = { scans: 0, clicks: 0, lastMs: 0 };
   }
 
@@ -53,13 +55,13 @@ class Engine extends EventEmitter {
   }
 
   resume() {
-    this._pendingMatch = null;
+    this._pendingPoint = null;
     this.start();
   }
 
   stop() {
     this._clearTimer();
-    this._pendingMatch = null;
+    this._pendingPoint = null;
     this._setState('idle');
   }
 
@@ -94,7 +96,33 @@ class Engine extends EventEmitter {
     const started = Date.now();
     try {
       const cfg = settings.all;
-      const { jimp, region, scaleX, scaleY } = await capture.capture(cfg.detection);
+
+      // --- Gate: only act while Antigravity is the focused window ---
+      let captureDetection = cfg.detection;
+      if (cfg.detection.requireActiveWindow) {
+        const aw = await activeWindow.getActive();
+        const focused = aw && activeWindow.titleMatches(aw.title, cfg.detection.activeWindowKeywords);
+        if (focused !== this._lastFocusOk) {
+          this._lastFocusOk = focused;
+          logger.info(focused
+            ? `Antigravity in focus — watching for prompts`
+            : 'Waiting for Antigravity to be focused…');
+        }
+        if (!focused) {
+          this._pendingPoint = null;
+          this.emit('detection', { action: 'none', reason: 'Antigravity is not focused' });
+          return; // finally{} schedules the next scan
+        }
+        // Look only inside the Antigravity window: faster, and clicks can only
+        // ever land inside Antigravity.
+        const r = aw.region;
+        captureDetection = {
+          ...cfg.detection,
+          region: { mode: 'custom', x: r.left, y: r.top, width: r.width, height: r.height },
+        };
+      }
+
+      const { jimp, region, scaleX, scaleY } = await capture.capture(captureDetection);
 
       if (cfg.general.showLivePreview) {
         capture.toThumbnail(jimp)
@@ -123,32 +151,35 @@ class Engine extends EventEmitter {
 
   async _handleDecision(decision, cfg) {
     if (decision.action === 'pause') {
-      this._pendingMatch = null;
+      this._pendingPoint = null;
       logger.warn(decision.reason);
       this.pause(decision.reason);
       return;
     }
 
     if (decision.action !== 'click') {
-      this._pendingMatch = null;
+      this._pendingPoint = null;
       return;
     }
 
     // From here: action === 'click'
     if (!cfg.automation.autoClick) {
-      logger.info(`Detected "${decision.matched}" — auto-click is off`);
+      logger.info(`Detected "${decision.matched}" button — auto-click is off`);
       return;
     }
 
-    // Double-scan confirmation: require the same target two scans in a row.
+    // Double-scan confirmation: require the target two scans in a row, but
+    // tolerate the small pixel jitter OCR produces between frames.
     if (cfg.automation.confirmDoubleScan) {
-      const key = `${decision.point.x},${decision.point.y}`;
-      if (this._pendingMatch !== key) {
-        this._pendingMatch = key;
-        logger.info(`Saw "${decision.matched}" — confirming on next scan…`);
+      const p = decision.point;
+      const prev = this._pendingPoint;
+      const TOL = 22;
+      if (!prev || Math.abs(prev.x - p.x) > TOL || Math.abs(prev.y - p.y) > TOL) {
+        this._pendingPoint = p;
+        logger.info(`Saw "${decision.matched}" button — confirming on next scan…`);
         return;
       }
-      this._pendingMatch = null;
+      this._pendingPoint = null;
     }
 
     // Cooldown between clicks.

@@ -20,13 +20,16 @@ const SCHEMA = [
   },
   {
     title: 'Detection', path: 'detection', fields: [
+      { key: 'requireActiveWindow', type: 'toggle', name: 'Only inside Antigravity', desc: 'Only watch & click while the Antigravity window is focused.' },
+      { key: 'activeWindowKeywords', type: 'list', name: 'Window title contains', desc: 'The focused window title must contain one of these.' },
       { key: 'scanIntervalMs', type: 'range', name: 'Scan interval', desc: 'Time between screen scans. Higher = lighter on the CPU.', min: 300, max: 3000, step: 100, unit: 'ms' },
       { key: 'minConfidence', type: 'range', name: 'OCR confidence', desc: 'Minimum confidence before a word is trusted.', min: 40, max: 95, step: 1, unit: '%' },
-      { key: 'requireTriggerPhrase', type: 'toggle', name: 'Require trusted phrase', desc: 'Only act when a known prompt phrase is on screen.' },
+      { key: 'strictMatch', type: 'toggle', name: 'Strict button matching', desc: 'Only click a "Yes" that sits next to a No/Cancel or inside a prompt. Stops it clicking the word "yes" in text.' },
       { key: 'pauseOnUnknown', type: 'toggle', name: 'Pause on anything unknown', desc: 'Pause when a prompt appears but no clear "Yes" is found.' },
+      { key: 'requireTriggerPhrase', type: 'toggle', name: 'Require prompt phrase', desc: 'Extra safety: also require a known prompt phrase before clicking.' },
       { key: 'acceptKeywords', type: 'list', name: 'Accept words', desc: 'Words that count as "Yes" (comma separated).' },
       { key: 'rejectKeywords', type: 'list', name: 'Reject words', desc: 'Words treated as "No" — never auto-clicked.' },
-      { key: 'triggerPhrases', type: 'list', name: 'Trusted phrases', desc: 'Phrases that confirm a real Claude / Antigravity prompt.' },
+      { key: 'triggerPhrases', type: 'list', name: 'Prompt phrases', desc: 'Phrases that indicate a real approval prompt.' },
     ],
   },
   {
