@@ -23,6 +23,7 @@ function createWindow() {
     minHeight: 600,
     show: false,
     backgroundColor: '#0b0b14',
+    icon: path.join(__dirname, '..', '..', 'build', 'icon.png'),
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     frame: process.platform === 'darwin',
     autoHideMenuBar: true,

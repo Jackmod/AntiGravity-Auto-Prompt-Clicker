@@ -9,3 +9,4 @@ Thumbs.db
 # OCR model cache (downloaded at runtime)
 *.traineddata
 *.traineddata.gz
+.wcs

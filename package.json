@@ -21,8 +21,10 @@
     "tesseract.js": "^5.1.1"
   },
   "devDependencies": {
+    "@electron/packager": "^20.0.1",
     "electron": "^31.7.0",
-    "electron-builder": "^24.13.3"
+    "electron-builder": "^24.13.3",
+    "png-to-ico": "^3.0.1"
   },
   "build": {
     "appId": "io.autopicker.app",
@@ -40,19 +42,37 @@
       "**/node_modules/tesseract.js*/**/*"
     ],
     "win": {
+      "icon": "build/icon.ico",
       "target": [
-        { "target": "nsis", "arch": ["x64"] }
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "artifactName": "AutoPicker-Setup-${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,
+      "perMachine": false,
       "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Auto Picker",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico"
     },
     "mac": {
+      "icon": "build/icon.png",
       "target": [
-        { "target": "dmg", "arch": ["x64", "arm64"] }
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
       ],
       "category": "public.app-category.productivity",
       "artifactName": "AutoPicker-${version}-${arch}.${ext}"

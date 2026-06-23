@@ -14,18 +14,28 @@ every action. The moment it sees anything it _doesn't_ confidently recognize, it
 
 ---
 
-## Quick start (no build needed)
+## Install (recommended)
 
-1. Install **Node.js LTS** once from <https://nodejs.org> (only needed if you run from source).
-2. Download / clone this folder.
-3. Double-click the launcher for your OS:
-   - **Windows:** `start-windows.bat`
-   - **macOS:** `start-macos.command` (first time: right-click → **Open**)
+**Windows:** download **`AutoPicker-Setup-1.0.0.exe`** and run it. It installs Auto Picker
+like any normal app — desktop + Start-menu shortcuts, and a proper uninstaller. No Node.js,
+no terminal, no scripts. Just click and go.
 
-The launcher installs dependencies on the first run, then opens the app. Every run after
-that just opens it.
+> Windows SmartScreen may show a "Windows protected your PC" notice because the installer
+> isn't code-signed (signing requires a paid certificate). Click **More info → Run anyway**.
+> The app is open source — you can read every line here.
+
+**macOS:** download the `.dmg`, drag Auto Picker to Applications, then on first launch
+right-click the app → **Open** (Gatekeeper). Grant **Screen Recording** + **Accessibility**
+when prompted.
 
 > First launch downloads the English OCR model (~a few MB) once, then works offline.
+
+## Run from source (for developers)
+
+1. Install **Node.js LTS** from <https://nodejs.org>.
+2. Clone this repo.
+3. Double-click `start-windows.bat` (Windows) or `start-macos.command` (macOS),
+   or run `npm install && npm start`.
 
 ### macOS permissions
 macOS will ask for **Screen Recording** and **Accessibility** permission the first time
@@ -69,8 +79,20 @@ without touching your mouse, so you can tune the keywords for your setup. Then t
 ## Build installers
 
 ```bash
-npm run dist:win   # → release/AutoPicker-Setup-1.0.0.exe
-npm run dist:mac   # → release/AutoPicker-1.0.0-<arch>.dmg
+node build/make-icon.js   # regenerate the app icon (build/icon.ico + icon.png)
+npm run dist:win          # → release/AutoPicker-Setup-1.0.0.exe
+npm run dist:mac          # → release/AutoPicker-1.0.0-<arch>.dmg   (run on macOS)
+```
+
+### Windows build note
+electron-builder downloads a `winCodeSign` bundle that contains macOS symlinks. Extracting
+those on Windows needs **Developer Mode** (Settings → Privacy & security → For developers)
+or an elevated shell — otherwise you'll see *"Cannot create symbolic link: A required
+privilege is not held by the client."* Enable Developer Mode once and the build just works.
+A portable build that avoids this entirely is also available:
+
+```bash
+npx @electron/packager . "Auto Picker" --platform=win32 --arch=x64 --out=release --overwrite
 ```
 
 ## Project layout
