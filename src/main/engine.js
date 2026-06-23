@@ -35,6 +35,10 @@ class Engine extends EventEmitter {
     this._pendingPoints = [];     // targets seen last scan (double-scan confirmation)
     this._recentClicks = [];      // {x,y,time} to avoid re-clicking the same button
     this._lastFocusOk = null;     // last known Antigravity-present state (for logging)
+    this._lastSig = null;         // frame fingerprint for change detection
+    this._activeScans = 0;        // OCR budget after a screen change (saves idle CPU)
+    this._winCache = null;        // cached matching windows
+    this._winCacheAt = 0;
     this.stats = { scans: 0, clicks: 0, lastMs: 0 };
   }
 
@@ -90,6 +94,22 @@ class Engine extends EventEmitter {
     this._timer = setTimeout(() => this._tick(), Math.max(50, delay));
   }
 
+  /** Matching Antigravity windows, cached ~1.5s so we don't enumerate windows every tick. */
+  async _matchingWindows(det) {
+    const now = Date.now();
+    if (this._winCache && now - this._winCacheAt < 1500) return this._winCache;
+    let wins;
+    if (det.onlyFocusedWindow) {
+      const aw = await activeWindow.getActive();
+      wins = (aw && activeWindow.titleMatches(aw.title, det.activeWindowKeywords)) ? [aw] : [];
+    } else {
+      wins = await activeWindow.getMatchingWindows(det.activeWindowKeywords);
+    }
+    this._winCache = wins;
+    this._winCacheAt = now;
+    return wins;
+  }
+
   _withinRateLimit() {
     const now = Date.now();
     const max = settings.all.safety.maxClicksPerMinute;
@@ -106,16 +126,10 @@ class Engine extends EventEmitter {
 
       const det = cfg.detection;
 
-      // --- Gate: only act inside Antigravity windows ---
+      // --- Gate: only act inside Antigravity windows (cached briefly) ---
       let matchWindows = null;
       if (det.requireActiveWindow) {
-        if (det.onlyFocusedWindow) {
-          const aw = await activeWindow.getActive();
-          matchWindows = (aw && activeWindow.titleMatches(aw.title, det.activeWindowKeywords))
-            ? [aw] : [];
-        } else {
-          matchWindows = await activeWindow.getMatchingWindows(det.activeWindowKeywords);
-        }
+        matchWindows = await this._matchingWindows(det);
         const present = matchWindows.length > 0;
         if (present !== this._lastFocusOk) {
           this._lastFocusOk = present;
@@ -125,20 +139,29 @@ class Engine extends EventEmitter {
         }
         if (!present) {
           this._pendingPoints = [];
+          this._lastSig = null;
           this.emit('detection', { action: 'none', reason: 'No Antigravity window' });
           return; // finally{} schedules the next scan
         }
       }
 
-      // Capture the full screen so prompts in every window/pane are seen, then
-      // OCR once. Clicks are filtered to Antigravity windows below.
-      const { jimp, region, scaleX, scaleY } = await capture.capture({
-        ...det, region: { mode: 'full' },
-      });
+      // Cheap grab + fingerprint. Only run the expensive OCR when the screen
+      // actually changed (or we're still resolving a recent change). This is
+      // what keeps idle CPU low.
+      const { nutImg, region } = await capture.grab({ ...det, region: { mode: 'full' } });
+      const sig = capture.signature(nutImg);
+      if (capture.sigChanged(this._lastSig, sig)) this._activeScans = 5;
+      this._lastSig = sig;
 
-      // Live preview is cosmetic — generate it at most every other scan so it
-      // doesn't add buffer churn to the hot path.
-      if (cfg.general.showLivePreview && this.stats.scans % 2 === 0) {
+      if (this._activeScans <= 0) {
+        this.emit('detection', { action: 'none', reason: 'Screen idle — watching' });
+        return; // skip OCR entirely
+      }
+      this._activeScans -= 1;
+
+      const { jimp, scaleX, scaleY } = capture.toJimp(nutImg, region);
+
+      if (cfg.general.showLivePreview) {
         capture.toThumbnail(jimp)
           .then((thumb) => this.emit('frame', { thumbnail: thumb }))
           .catch(() => {});
@@ -152,6 +175,11 @@ class Engine extends EventEmitter {
       if (matchWindows) {
         analysis.clicks = analysis.clicks
           .filter((c) => activeWindow.pointInWindows(c.point, matchWindows));
+      }
+
+      // Keep OCR alive a few more scans while a prompt is being resolved.
+      if (analysis.clicks.length || analysis.pause || this._pendingPoints.length) {
+        this._activeScans = Math.max(this._activeScans, 3);
       }
 
       this.stats.scans += 1;

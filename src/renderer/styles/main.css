@@ -291,6 +291,72 @@ body.is-mac .titlebar { padding-left: 78px; justify-content: flex-start; }
 @keyframes toastIn { from { opacity: 0; transform: translateX(40px); } to { opacity: 1; transform: none; } }
 @keyframes toastOut { to { opacity: 0; transform: translateX(40px); } }
 
+/* ============================================================
+   Extra motion — all GPU-cheap (transform/opacity). Everything here
+   PAUSES when the window is hidden (body.anim-paused) so background
+   animation costs nothing.
+   ============================================================ */
+body.anim-paused *,
+body.anim-paused *::before,
+body.anim-paused *::after { animation-play-state: paused !important; }
+
+/* Radar sweep on the orb while watching */
+.orb::after {
+  content: ''; position: absolute; inset: -6px; border-radius: 50%;
+  background: conic-gradient(from 0deg, transparent 0deg, rgba(124,92,255,0.35) 40deg, transparent 80deg);
+  opacity: 0; transition: opacity 0.4s var(--ease); pointer-events: none;
+}
+.orb[data-state="watching"]::after { opacity: 1; animation: sweep 2.8s linear infinite; }
+@keyframes sweep { to { transform: rotate(360deg); } }
+
+/* Orb "pop" when a click happens */
+.orb.pop .orb-core { animation: pop 0.5s var(--ease); }
+@keyframes pop {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.18); box-shadow: 0 0 60px rgba(67,211,158,0.8); }
+  100% { transform: scale(1); }
+}
+
+/* Entrance: cards in the active view rise and stagger in */
+.view.active .card { animation: riseIn 0.5s var(--ease) both; }
+.view.active .card:nth-child(2) { animation-delay: 0.06s; }
+.view.active .card:nth-child(3) { animation-delay: 0.12s; }
+.view.active .set-group { animation: riseIn 0.45s var(--ease) both; }
+.view.active .set-group:nth-child(2) { animation-delay: 0.07s; }
+.view.active .set-group:nth-child(3) { animation-delay: 0.14s; }
+.view.active .set-group:nth-child(4) { animation-delay: 0.21s; }
+@keyframes riseIn { from { opacity: 0; transform: translateY(16px) scale(0.99); } to { opacity: 1; transform: none; } }
+
+/* Shimmer sweep across the primary button */
+.primary-btn { position: relative; overflow: hidden; }
+.primary-btn::after {
+  content: ''; position: absolute; top: 0; left: -60%; width: 40%; height: 100%;
+  background: linear-gradient(100deg, transparent, rgba(255,255,255,0.35), transparent);
+  transform: skewX(-18deg); animation: shimmer 3.4s ease-in-out infinite;
+}
+@keyframes shimmer { 0%, 60% { left: -60%; } 100% { left: 130%; } }
+
+/* Animated scan line over the live preview while watching */
+.preview::after {
+  content: ''; position: absolute; left: 0; right: 0; top: 0; height: 36%;
+  background: linear-gradient(180deg, rgba(124,92,255,0.22), transparent);
+  opacity: 0; pointer-events: none;
+}
+body.is-watching .preview::after { opacity: 1; animation: scanline 2.6s ease-in-out infinite; }
+@keyframes scanline { 0% { transform: translateY(-40%); } 50% { transform: translateY(300%); } 100% { transform: translateY(-40%); } }
+
+/* Gradient sheen on section headings */
+.view-head h1 {
+  background: linear-gradient(90deg, var(--text) 30%, var(--accent) 50%, var(--text) 70%);
+  background-size: 200% auto; -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; animation: sheen 6s linear infinite;
+}
+@keyframes sheen { to { background-position: 200% center; } }
+
+/* Live count flip on stat numbers */
+.stat-num.bump { animation: bump 0.4s var(--ease); }
+@keyframes bump { 0% { transform: scale(1); } 40% { transform: scale(1.22); color: var(--good); } 100% { transform: scale(1); } }
+
 /* scrollbars */
 ::-webkit-scrollbar { width: 10px; }
 ::-webkit-scrollbar-thumb { background: var(--surface-2); border-radius: 999px; border: 2px solid transparent; background-clip: content-box; }

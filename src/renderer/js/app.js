@@ -70,6 +70,11 @@ async function init() {
   refreshStatus();
   document.getElementById('hotkeyHint').textContent =
     `Global toggle: ${settings.safety.pauseHotkey}`;
+
+  // Pause all animations while the window is hidden/minimized — zero background cost.
+  document.addEventListener('visibilitychange', () => {
+    document.body.classList.toggle('anim-paused', document.hidden);
+  });
 }
 
 /* ---------------- window + nav ---------------- */
@@ -240,6 +245,7 @@ function setState(state) {
   document.getElementById('orbSub').textContent = subs[state] || '';
   document.getElementById('statePillText').textContent = labels[state] || state;
   const active = state === 'watching';
+  document.body.classList.toggle('is-watching', active);
   toggleBtn.classList.toggle('is-active', active);
   toggleBtn.querySelector('.btn-label').textContent = active ? 'Pause watching' : 'Start watching';
 }
@@ -252,9 +258,17 @@ function wireEngineEvents() {
     if (state === 'watching') toast('Watching started', 'success');
   });
 
+  let lastClicks = 0;
   AP.on('engine:stats', (stats) => {
     AP_anim.countTo(document.getElementById('statScans'), stats.scans || 0);
-    AP_anim.countTo(document.getElementById('statClicks'), stats.clicks || 0);
+    const clicksEl = document.getElementById('statClicks');
+    AP_anim.countTo(clicksEl, stats.clicks || 0);
+    if ((stats.clicks || 0) > lastClicks) {
+      lastClicks = stats.clicks;
+      clicksEl.classList.remove('bump');
+      void clicksEl.offsetWidth; // restart animation
+      clicksEl.classList.add('bump');
+    }
     AP_anim.countTo(document.getElementById('statMs'), stats.lastMs || 0, 'ms');
   });
 
@@ -270,6 +284,12 @@ function wireEngineEvents() {
     const tagClass = d.action === 'click' ? 'click' : d.action === 'pause' ? 'pause' : 'none';
     const label = { click: 'CLICK', pause: 'PAUSE', none: 'IDLE' }[d.action] || d.action;
     el.innerHTML = `<span class="tag ${tagClass}">${label}</span>${escapeHtml(d.reason || '')}`;
+    if (d.action === 'click') {
+      const orb = document.getElementById('orb');
+      orb.classList.remove('pop');
+      void orb.offsetWidth;
+      orb.classList.add('pop');
+    }
   });
 
   AP.on('log:entry', (entry) => appendLog(entry));

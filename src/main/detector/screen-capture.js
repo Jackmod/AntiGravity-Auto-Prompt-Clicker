@@ -45,16 +45,58 @@ function nutImageToJimp(img) {
 }
 
 /**
- * Capture the configured region.
- * @returns {Promise<{jimp: Jimp, region: Region, scaleX: number, scaleY: number}>}
+ * Cheap screen grab — just the raw nut-js image + region. No per-pixel
+ * conversion (that and OCR are the expensive parts), so this can run every
+ * tick to check whether anything changed.
+ * @returns {Promise<{nutImg: object, region: Region}>}
  */
-async function capture(detection) {
+async function grab(detection) {
   const region = await resolveRegion(detection);
   const nutImg = await screen.grabRegion(region);
+  return { nutImg, region };
+}
+
+/**
+ * A tiny luminance fingerprint of the frame (a coarse grid sampled straight
+ * from the raw buffer — very cheap). Used to skip OCR when the screen is
+ * static, which is what kills idle CPU.
+ * @returns {Uint8Array}
+ */
+function signature(nutImg) {
+  const { width, height, data } = nutImg;
+  const ch = nutImg.channels || (data.length / (width * height)) | 0;
+  const GW = 48;
+  const GH = 27;
+  const sig = new Uint8Array(GW * GH);
+  for (let gy = 0; gy < GH; gy++) {
+    const y = Math.min(height - 1, Math.floor((gy + 0.5) * height / GH));
+    for (let gx = 0; gx < GW; gx++) {
+      const x = Math.min(width - 1, Math.floor((gx + 0.5) * width / GW));
+      const i = (y * width + x) * ch;
+      sig[gy * GW + gx] = ((data[i] + data[i + 1] + data[i + 2]) / 3) | 0;
+    }
+  }
+  return sig;
+}
+
+/** Did enough of the frame change to be worth re-running OCR? */
+function sigChanged(prev, cur) {
+  if (!prev || prev.length !== cur.length) return true;
+  let changed = 0;
+  for (let i = 0; i < cur.length; i++) {
+    if (Math.abs(cur[i] - prev[i]) > 14) changed += 1;
+  }
+  return changed > 4; // ignore cursor blink / clock ticks; catch real prompts
+}
+
+/** Convert a raw nut-js image to a Jimp image + the logical->pixel scale. */
+function toJimp(nutImg, region) {
   const jimp = nutImageToJimp(nutImg);
-  const scaleX = region.width / jimp.bitmap.width;
-  const scaleY = region.height / jimp.bitmap.height;
-  return { jimp, region, scaleX, scaleY };
+  return {
+    jimp,
+    scaleX: region.width / jimp.bitmap.width,
+    scaleY: region.height / jimp.bitmap.height,
+  };
 }
 
 /** Encode a Jimp image to a PNG buffer for OCR. (getBufferAsync does not
@@ -73,4 +115,6 @@ async function toThumbnail(jimp, maxWidth = 380) {
   return clone.getBase64Async(Jimp.MIME_JPEG);
 }
 
-module.exports = { capture, toPngBuffer, toThumbnail, resolveRegion };
+module.exports = {
+  grab, signature, sigChanged, toJimp, toPngBuffer, toThumbnail, resolveRegion,
+};
