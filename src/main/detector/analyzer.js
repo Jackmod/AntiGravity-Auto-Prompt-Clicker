@@ -77,24 +77,55 @@ function isIsolated(w, words) {
   return true;
 }
 
-/**
- * Distinctive tokens pulled from the prompt phrases (e.g. "allow", "command",
- * "proceed"). Used to confirm a single accept button really belongs to a
- * prompt that is *right next to it*, not a phrase elsewhere on screen.
- */
-function phraseAnchors(words, phrases, exclude) {
-  const skip = new Set((exclude || []).map(normalize));
-  const toks = new Set();
-  for (const p of phrases) {
-    for (const t of normalize(p).split(' ')) if (t.length >= 4 && !skip.has(t)) toks.add(t);
+/** Group OCR words into text lines (sorted left-to-right within each line). */
+function groupLines(words) {
+  const ws = words.slice().sort((a, b) => a.cy - b.cy || a.cx - b.cx);
+  const lines = [];
+  let cur = [];
+  for (const w of ws) {
+    if (!cur.length) { cur = [w]; continue; }
+    const prev = cur[cur.length - 1];
+    if (Math.abs(w.cy - prev.cy) <= wordHeight(prev) * 0.7) cur.push(w);
+    else { lines.push(cur); cur = [w]; }
   }
-  return words.filter((w) => toks.has(normalize(w.text)));
+  if (cur.length) lines.push(cur);
+  for (const l of lines) l.sort((a, b) => a.cx - b.cx);
+  return lines;
 }
 
-/** Is the accept button vertically near (just below/around) a prompt anchor? */
+/**
+ * Find where actual prompt phrases ("allow this", "do you want", "run command")
+ * appear as consecutive words. These are strong anchors — far more reliable
+ * than matching a single common word like "this", which appears everywhere.
+ * Returns the centre point of each phrase occurrence.
+ */
+function findPhraseAnchors(words, phrases) {
+  const phr = phrases
+    .map((p) => normalize(p).split(' ').filter(Boolean))
+    .filter((toks) => toks.length >= 2);
+  const anchors = [];
+  for (const line of groupLines(words)) {
+    const toks = line.map((w) => normalize(w.text));
+    for (const p of phr) {
+      for (let i = 0; i + p.length <= toks.length; i++) {
+        let ok = true;
+        for (let j = 0; j < p.length; j++) { if (toks[i + j] !== p[j]) { ok = false; break; } }
+        if (ok) {
+          const span = line.slice(i, i + p.length);
+          anchors.push({
+            cx: span.reduce((s, w) => s + w.cx, 0) / span.length,
+            cy: span.reduce((s, w) => s + w.cy, 0) / span.length,
+          });
+        }
+      }
+    }
+  }
+  return anchors;
+}
+
+/** Is the accept button near (just below/around) a real prompt phrase? */
 function nearAnchor(accept, anchors) {
-  return anchors.some((a) => a !== accept
-    && Math.abs(accept.cy - a.cy) <= 340 && Math.abs(accept.cx - a.cx) <= 900);
+  return anchors.some((a) => Math.abs(accept.cy - a.cy) <= 320 && Math.abs(accept.cx - a.cx) <= 850);
 }
 
 /**
@@ -146,9 +177,8 @@ function analyze(ocr, detection, geom) {
   const isolatedAccepts = acceptWords.filter((a) => isIsolated(a, words));
   const bestAccept = isolatedAccepts.slice().sort((x, y) => y.confidence - x.confidence)[0] || null;
 
-  // For a lone accept button, confirm a prompt phrase sits right next to it.
-  const anchors = phraseAnchors(words, detection.triggerPhrases,
-    [...detection.acceptKeywords, ...detection.rejectKeywords]);
+  // For a lone accept button, confirm a real prompt phrase sits next to it.
+  const anchors = findPhraseAnchors(words, detection.triggerPhrases);
   const phraseAccept = isolatedAccepts
     .filter((a) => nearAnchor(a, anchors))
     .sort((x, y) => y.confidence - x.confidence)[0] || null;

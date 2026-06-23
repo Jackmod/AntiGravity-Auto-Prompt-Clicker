@@ -2,11 +2,16 @@
 
 const Store = require('electron-store');
 
+// Bump when detection keyword/phrase logic changes so existing installs pick up
+// the new safer lists instead of keeping stale persisted ones.
+const SCHEMA_VERSION = 2;
+
 /**
  * Central settings definition. Every value here is a real, wired-up control
  * surfaced in the Settings panel — changing it changes engine behaviour live.
  */
 const DEFAULTS = {
+  _schemaVersion: SCHEMA_VERSION,
   general: {
     autoStartWatching: false,   // begin watching as soon as the app opens
     launchMinimized: false,     // start hidden in the tray/dock
@@ -47,7 +52,11 @@ const DEFAULTS = {
   },
 };
 
-const store = new Store({ name: 'auto-picker-settings', defaults: DEFAULTS });
+// NOTE: no `defaults` here on purpose — if defaults were applied at the store
+// layer, store.store would always report the current _schemaVersion and the
+// migration below could never detect an older install. Defaults are merged in
+// the `all` getter instead.
+const store = new Store({ name: 'auto-picker-settings' });
 
 /** Deep-merge a partial patch into the stored settings. */
 function deepMerge(target, patch) {
@@ -65,8 +74,20 @@ function deepMerge(target, patch) {
 module.exports = {
   DEFAULTS,
   get all() {
+    const stored = store.store || {};
     // Merge over defaults so newly-added keys are always present.
-    return deepMerge(JSON.parse(JSON.stringify(DEFAULTS)), store.store || {});
+    const merged = deepMerge(JSON.parse(JSON.stringify(DEFAULTS)), stored);
+    // Migration: when detection logic changes, refresh the keyword/phrase lists
+    // (arrays are replaced wholesale by the merge, so stale ones would persist).
+    if ((stored._schemaVersion || 0) < SCHEMA_VERSION) {
+      merged.detection.acceptKeywords = DEFAULTS.detection.acceptKeywords.slice();
+      merged.detection.rejectKeywords = DEFAULTS.detection.rejectKeywords.slice();
+      merged.detection.triggerPhrases = DEFAULTS.detection.triggerPhrases.slice();
+      merged.detection.requireTriggerPhrase = DEFAULTS.detection.requireTriggerPhrase;
+      merged._schemaVersion = SCHEMA_VERSION;
+      store.store = merged; // persist the migration once
+    }
+    return merged;
   },
   get(path) { return store.get(path); },
   /** Apply a partial settings object and return the merged result. */
