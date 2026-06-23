@@ -68,6 +68,8 @@ class Engine extends EventEmitter {
     this._pendingPoints = [];
     this._recentClicks = [];
     this._setState('idle');
+    // Free the OCR engine (WASM + language model) while idle to cut memory.
+    ocr.terminate().catch(() => {});
   }
 
   toggle() {
@@ -134,7 +136,9 @@ class Engine extends EventEmitter {
         ...det, region: { mode: 'full' },
       });
 
-      if (cfg.general.showLivePreview) {
+      // Live preview is cosmetic — generate it at most every other scan so it
+      // doesn't add buffer churn to the hot path.
+      if (cfg.general.showLivePreview && this.stats.scans % 2 === 0) {
         capture.toThumbnail(jimp)
           .then((thumb) => this.emit('frame', { thumbnail: thumb }))
           .catch(() => {});

@@ -57,9 +57,10 @@ async function capture(detection) {
   return { jimp, region, scaleX, scaleY };
 }
 
-/** Encode a Jimp image to a PNG buffer for OCR. */
+/** Encode a Jimp image to a PNG buffer for OCR. (getBufferAsync does not
+ *  mutate the image, so no clone is needed — saves a full-frame copy per scan.) */
 function toPngBuffer(jimp) {
-  return jimp.clone().getBufferAsync(Jimp.MIME_PNG);
+  return jimp.getBufferAsync(Jimp.MIME_PNG);
 }
 
 /** Build a small base64 JPEG thumbnail for the live preview (kept cheap). */

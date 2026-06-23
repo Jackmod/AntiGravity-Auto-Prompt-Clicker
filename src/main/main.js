@@ -12,6 +12,13 @@ const { registerIpc } = require('./ipc');
 const isDev = process.argv.includes('--dev');
 let mainWindow = null;
 
+// --- Memory trimming ---------------------------------------------------------
+// Cap the V8 heap and disable some Chromium subsystems we don't use. The watch
+// loop runs in the main process, so throttling the (mostly idle) renderer is
+// free and keeps background memory/CPU low.
+app.commandLine.appendSwitch('js-flags', '--max-old-space-size=256');
+app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
+
 function createWindow() {
   const cfg = settings.all;
   nativeTheme.themeSource = cfg.general.theme === 'light' ? 'light' : 'dark';

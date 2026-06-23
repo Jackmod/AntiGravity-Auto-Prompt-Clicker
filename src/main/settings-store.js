@@ -4,7 +4,7 @@ const Store = require('electron-store');
 
 // Bump when detection keyword/phrase logic changes so existing installs pick up
 // the new safer lists instead of keeping stale persisted ones.
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 /**
  * Central settings definition. Every value here is a real, wired-up control
@@ -13,7 +13,7 @@ const SCHEMA_VERSION = 2;
 const DEFAULTS = {
   _schemaVersion: SCHEMA_VERSION,
   general: {
-    autoStartWatching: false,   // begin watching as soon as the app opens
+    autoStartWatching: true,    // begin watching as soon as the app opens
     launchMinimized: false,     // start hidden in the tray/dock
     theme: 'midnight',          // 'midnight' | 'dark' | 'light'
     accent: '#7c5cff',          // UI accent colour
@@ -88,6 +88,7 @@ module.exports = {
       merged.detection.rejectKeywords = DEFAULTS.detection.rejectKeywords.slice();
       merged.detection.triggerPhrases = DEFAULTS.detection.triggerPhrases.slice();
       merged.detection.requireTriggerPhrase = DEFAULTS.detection.requireTriggerPhrase;
+      merged.general.autoStartWatching = DEFAULTS.general.autoStartWatching;
       merged._schemaVersion = SCHEMA_VERSION;
       store.store = merged; // persist the migration once
     }
