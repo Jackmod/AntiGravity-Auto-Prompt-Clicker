@@ -1,12 +1,18 @@
-node_modules/
-release/
-dist/
-*.log
-.DS_Store
-Thumbs.db
-.cache/
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
 
-# OCR model cache (downloaded at runtime)
-*.traineddata
-*.traineddata.gz
-.wcs
+# PyInstaller
+build/
+dist/
+*.spec
+_entry.py
+
+# Yes Clicker runtime artifacts (written next to the app)
+clicks.json
+settings.json
+yes-clicker.log
+templates/

@@ -1,110 +1,136 @@
-# Auto Picker
+# Yes Clicker
 
-**Auto Picker** watches your screen and automatically clicks **"Yes"** on Claude Code
-approval prompts inside the **Antigravity IDE** — so you stop breaking flow to confirm
-every action. The moment it sees anything it _doesn't_ confidently recognize, it
-**pauses** instead of guessing.
+A lightweight Windows utility that auto-clicks the **Yes** button in Antigravity
+IDE's Claude Code permission prompts (e.g. *"Allow this bash command?"*). It
+watches the screen, and only when it sees a *complete, genuine* prompt does it
+click — otherwise it does nothing at all (no clicks, no mouse movement).
 
-- 🖥️ **Windows & macOS** — same code, native on both.
-- 🧠 **On-device only** — screen reading and OCR happen locally. Nothing is uploaded.
-- 🛟 **Safe by design** — only clicks inside a trusted prompt, double-confirms, rate-limits, and pauses on anything ambiguous.
-- 🎛️ **Real settings** — every toggle and slider changes behaviour live.
-- ✨ **Fluid UI** — GPU-only animations, light on the CPU.
-- 🔓 **Open source (MIT)** — clone it, read it, change it.
+**Plug and play: no templates, no capture, no setup. Run it and it works.**
 
 ---
 
-## Install (recommended)
+## Why
 
-**Windows:** download **`AutoPicker-Setup-1.0.0.exe`** and run it. It installs Auto Picker
-like any normal app — desktop + Start-menu shortcuts, and a proper uninstaller. No Node.js,
-no terminal, no scripts. Just click and go.
-
-> Windows SmartScreen may show a "Windows protected your PC" notice because the installer
-> isn't code-signed (signing requires a paid certificate). Click **More info → Run anyway**.
-> The app is open source — you can read every line here.
-
-**macOS:** download the `.dmg`, drag Auto Picker to Applications, then on first launch
-right-click the app → **Open** (Gatekeeper). Grant **Screen Recording** + **Accessibility**
-when prompted.
-
-> First launch downloads the English OCR model (~a few MB) once, then works offline.
-
-## Run from source (for developers)
-
-1. Install **Node.js LTS** from <https://nodejs.org>.
-2. Clone this repo.
-3. Double-click `start-windows.bat` (Windows) or `start-macos.command` (macOS),
-   or run `npm install && npm start`.
-
-### macOS permissions
-macOS will ask for **Screen Recording** and **Accessibility** permission the first time
-(System Settings → Privacy & Security). These are required for any app that reads the
-screen or moves the mouse. Grant both, then relaunch.
+Inside the Antigravity IDE, Claude Code's native auto-accept doesn't work, so you
+have to sit there clicking **Yes** on every command approval. Yes Clicker does it
+for you in the background, so agents can keep working while you do something else.
 
 ---
 
 ## How it works
 
+On Windows it reads the on-screen text with the built-in OCR engine
+(`Windows.Media.Ocr`, ~0.1s, nothing to install) plus a bit of colour analysis,
+every ~300ms (adaptive). It only clicks when it sees a real prompt:
+
+- the **footer** — `Esc to cancel` / `Tell Claude what to do instead`
+- a second signal in the same column — the `Allow this bash command?` header, a
+  `2 No` option, or the **blue selection highlight bar** (detected by colour, so
+  it works even when OCR misreads the highlighted "Yes" text)
+
+It then clicks the highlighted **Yes** and presses Enter. Requiring the footer +
+a tightly-grouped second element is what keeps it from firing on stray "yes" text
+in your code or chat.
+
+Safety layers: clicks only inside a confirmed prompt, a per-prompt cooldown (no
+double-clicks), a pre-click re-check, a max-clicks-per-minute cap that auto-stops
+if tripped, it never clicks its own window, and an **F9 panic key** stops
+everything instantly from anywhere.
+
+> **Note:** detection reads on-screen text, so if your editor/chat literally
+> shows a prompt's exact phrases *and* a matching highlight bar, it could match
+> that. Normal work doesn't, so it's reliable in real use. Use **Test detection on
+> the REAL prompt** to confirm what it sees.
+
+It handles **multiple agents at once** — every prompt visible on screen (any
+window, any monitor) is clicked in the same pass.
+
+---
+
+## Get it
+
+### Option A — download the .exe (easiest, no Python)
+Grab `yes-clicker.exe` from the [Releases](../../releases) page and double-click
+it. That's the whole install.
+
+### Option B — run from source
+```bash
+pip install -r requirements.txt
+python -m yes_clicker
 ```
-        ┌───────────── main process (Node) ─────────────┐
-screen ─▶ screen-capture ─▶ ocr ─▶ analyzer ─▶ engine ─▶ clicker ─▶ mouse
-        └───────────────────────┬───────────────────────┘
-                                │ IPC (secure preload bridge)
-                        ┌───────▼────────┐
-                        │  renderer UI   │  dashboard · settings · activity
-                        └────────────────┘
-```
+Python 3.9+ on Windows.
 
-1. **Capture** — grabs the screen (or a region you choose) via `nut-js`.
-2. **OCR** — `tesseract.js` reads the words and their on-screen positions.
-3. **Analyze** — decides `click` / `pause` / `none`:
-   - **click**: a trusted prompt phrase _and_ an accept word ("Yes/Allow/…") are present.
-   - **pause**: a prompt clearly needs a decision but "Yes" isn't safely identifiable.
-   - **none**: nothing actionable — keep watching.
-4. **Click** — moves to the button and clicks, respecting cooldown, rate limits, and dry-run.
+---
 
-## Settings that actually do something
+## Using it
 
-| Group | Highlights |
-|------|-----------|
-| **General** | auto-start, launch minimized, live preview, theme, accent colour |
-| **Detection** | scan interval, OCR confidence, accept/reject words, trusted phrases, pause-on-unknown |
-| **Automation** | auto-click master switch, **dry run**, double-confirm, click delay, cooldown, cursor restore |
-| **Safety** | corner fail-safe, max clicks/min, global toggle hotkey |
+1. Open it — it **auto-starts** (green dot = watching). No setup.
+2. Work in Antigravity. When a permission prompt appears, it clicks **Yes**.
+3. Closing the window (**X**) keeps it running in the system tray by default
+   (toggle in Settings). Fully quit from the tray menu → **Quit**.
+4. **F9** stops it instantly from anywhere.
 
-**Tip:** turn on **Dry run** first. The app will detect and log what it _would_ click
-without touching your mouse, so you can tune the keywords for your setup. Then turn it off.
+### The window
+- Status dot + Start/Stop, live click counter
+- **Sound: ON / OFF** mute toggle (also in the tray menu)
+- **Run Live Test** (renders a fake prompt and clicks it), **Test detection on the
+  REAL prompt** (scans your live screen and reports what it sees), **Audit**
+- Collapsible **Statistics** (today / week / all-time, busiest hour, time saved)
+- **Settings**: scan interval, max clicks/minute, and toggles for restore-mouse,
+  click sound, auto-start, press-Enter-after-click, **Strict mode** (only click a
+  visibly-highlighted option), and keep-running-in-tray-on-close
 
-## Build installers
+---
+
+## CLI flags
+
+| Flag        | Does                                                          |
+|-------------|--------------------------------------------------------------|
+| (none)      | Launch the GUI + tray                                         |
+| `--test`    | Render a replica prompt, run the full detect+click pipeline, print PASS/FAIL |
+| `--probe`   | 4s countdown, then scan the live screen once and report what it detected |
+| `--audit`   | Health checks (OCR, capture, mouse, DPI, false-positive risk); exit 0/1 |
+| `--stats`   | Print statistics and exit                                     |
+| `--no-tray` | GUI without the system tray                                   |
+
+---
+
+## Build the .exe yourself
 
 ```bash
-node build/make-icon.js   # regenerate the app icon (build/icon.ico + icon.png)
-npm run dist:win          # → release/AutoPicker-Setup-1.0.0.exe
-npm run dist:mac          # → release/AutoPicker-1.0.0-<arch>.dmg   (run on macOS)
+pip install -r requirements.txt
+python build.py            # add --clean to wipe build/ dist/ first
 ```
+Output: `dist/yes-clicker.exe` (`--onefile`, bundles the OCR engine — nothing to
+install on the target machine).
 
-### Windows build note
-electron-builder downloads a `winCodeSign` bundle that contains macOS symlinks. Extracting
-those on Windows needs **Developer Mode** (Settings → Privacy & security → For developers)
-or an elevated shell — otherwise you'll see *"Cannot create symbolic link: A required
-privilege is not held by the client."* Enable Developer Mode once and the build just works.
-A portable build that avoids this entirely is also available:
+---
 
-```bash
-npx @electron/packager . "Auto Picker" --platform=win32 --arch=x64 --out=release --overwrite
-```
+## Performance
 
-## Project layout
+- `mss` capture, on-device OCR, and frame-change gating so a static screen costs
+  almost nothing
+- Adaptive polling (slows when idle, speeds up on activity)
+- Only scans while Antigravity is the foreground window
+- Single background thread; the UI never blocks
 
-```
-src/
-  main/        main.js · ipc.js · engine.js · settings-store.js · util/logger.js
-    detector/  screen-capture.js · ocr.js · analyzer.js
-    automation/clicker.js
-  preload/     preload.js   (secure renderer bridge)
-  renderer/    index.html · styles/ · js/ (app.js, animations.js)
-```
+---
+
+## Platform notes
+
+Built and tested on Windows. On macOS/Linux there's no `Windows.Media.Ocr`, so it
+falls back to OpenCV template matching, which needs a one-time capture via the
+**Recapture** button (and on macOS, Screen Recording + Accessibility permissions —
+`--audit` checks these).
+
+---
+
+## Files it writes (next to the app)
+
+`settings.json` (your settings), `clicks.json` (click history, pruned to 90 days),
+`yes-clicker.log` (timestamped log).
+
+---
 
 ## License
 

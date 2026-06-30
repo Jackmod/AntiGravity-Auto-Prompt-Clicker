@@ -1,0 +1,23 @@
+# Core
+mss>=9.0.1
+# opencv 4.10.x is the last line that supports numpy 1.x; pin both together so we
+# don't force a numpy 2.0 upgrade that breaks scipy/pandas/sklearn stacks.
+opencv-python>=4.8,<4.11
+numpy>=1.24,<2
+pyautogui>=0.9.54
+Pillow>=10.0.0
+
+# Tray (Windows + Linux)
+pystray>=0.19.4 ; platform_system != "Darwin"
+
+# Tray (macOS)
+rumps>=0.4.0 ; platform_system == "Darwin"
+
+# Global hotkey (panic key F9)
+pynput>=1.7.6
+
+# On-device OCR for plug-and-play text detection (Windows; no templates needed)
+winsdk>=1.0.0b10 ; platform_system == "Windows"
+
+# Build
+pyinstaller>=6.0.0
