@@ -349,22 +349,27 @@ class TextPromptDetector:
         best = 0.0
         for r in regions:
             ref, anchor, yes_line, no_line = r["ref"], r["anchor"], r["yes"], r["no"]
-            # Look for the selection bar in the option area above the footer and in
-            # the footer's column. The bar is colour-detected, so it confirms a
-            # prompt and gives a click point even when OCR misread the option text.
+
+            # Confirm it's a REAL prompt using menu TEXT structure only: the footer
+            # plus at least one of header / "No" option / "Yes" option / a second
+            # footer line. A colour bar is NOT accepted as confirmation, because a
+            # blue text-selection highlight looks identical to the prompt's bar —
+            # so it must never be what makes us decide "this is a prompt".
+            second = (r["header"] is not None or no_line is not None
+                      or yes_line is not None or r["other_chrome"])
+            if not second:
+                continue
+
+            # Bar is used ONLY to locate the click, and only inside the confirmed
+            # prompt's own option area (between header/top and the No/footer row).
             bx1, bx2 = anchor.x - 20, anchor.x + 520
             by2 = (no_line.y + no_line.h) if no_line else anchor.y
             by1 = (r["header"].y + r["header"].h) if r["header"] \
                 else (anchor.y - PROMPT_LOOK_UP)
             bar = self._find_highlight_bar(frame_bgra, bx1, bx2, by1, by2)
 
-            # Confirm: footer + a second prompt element (text OR the colour bar).
-            second = (r["header"] is not None or no_line is not None
-                      or yes_line is not None or r["other_chrome"] or bar is not None)
-            if not second:
-                continue
-
-            # Click target preference: the read "Yes" word, else the selection bar.
+            # Click target preference: read "Yes" word > selection bar > the row
+            # directly above the "No" option (option 1 sits right above option 2).
             if yes_line is not None:
                 cx, cy = yes_line.cx, yes_line.cy
                 for wtext, wx, wy, ww, wh in yes_line.words:
@@ -375,6 +380,11 @@ class TextPromptDetector:
             elif bar is not None:
                 cx, cy = bar
                 highlighted = True
+            elif no_line is not None:
+                # Infer Yes as the row just above No (both left-aligned).
+                cx = no_line.x + min(40, no_line.w // 3)
+                cy = no_line.y - max(20, no_line.h)
+                highlighted = False
             else:
                 continue  # confirmed it's a prompt but nothing safe to click
 
