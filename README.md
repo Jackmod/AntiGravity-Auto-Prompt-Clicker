@@ -66,8 +66,9 @@ Python 3.9+ on Windows.
 
 1. Open it — it **auto-starts** (green dot = watching). No setup.
 2. Work in Antigravity. When a permission prompt appears, it clicks **Yes**.
-3. Closing the window (**X**) keeps it running in the system tray by default
-   (toggle in Settings). Fully quit from the tray menu → **Quit**.
+3. Closing the window (**X**) quits it. To keep it running in the background
+   instead, enable "keep running in tray" in Settings (then fully quit from the
+   tray menu → **Quit**).
 4. **F9** stops it instantly from anywhere.
 
 ### The window

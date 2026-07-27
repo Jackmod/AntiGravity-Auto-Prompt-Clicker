@@ -32,7 +32,7 @@ class Settings:
     auto_start: bool = True              # begin scanning on launch
     confirm_enter: bool = True           # press Enter after clicking Yes
     require_highlight: bool = False      # strict: only click a visibly-highlighted option
-    close_to_tray: bool = True           # X button hides to tray instead of quitting
+    close_to_tray: bool = False          # X button quits by default (opt in to tray)
 
     # --- scoping ---
     only_when_foreground_antigravity: bool = True

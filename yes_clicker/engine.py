@@ -72,8 +72,10 @@ class Engine:
         self._thread: threading.Thread | None = None
         self._panicked = False
 
-        # cooldown: region-key -> expiry timestamp
-        self._cooldowns: dict[tuple[int, int, int], float] = {}
+        # Recent clicks for the cooldown: list of (monitor, x, y, expiry). Distance-
+        # based so a re-detected prompt is suppressed even if the click point jitters
+        # between the OCR'd "Yes" text and the colour-bar centre.
+        self._recent_clicks: list[tuple[int, int, int, float]] = []
         self._click_times: deque[float] = deque(maxlen=240)
         self._empty_streak = 0
         self._low_conf_streak = 0
@@ -219,7 +221,7 @@ class Engine:
                     # missed on one frame and read fine on the next, so we must keep
                     # re-checking even when the picture hasn't changed.
                     if (prev and prev[0] == sig and prev[1] + 1 < RECHECK_EVERY
-                            and not self._cooldowns):
+                            and not self._recent_clicks):
                         self._frame_sig[monitor.index] = (sig, prev[1] + 1)
                         continue
                     dets = self.detector.scan(frame, monitor)
@@ -263,7 +265,8 @@ class Engine:
     def _register_click(self, det, lx, ly) -> None:
         now = time.time()
         self._click_times.append(now)
-        self._cooldowns[self._region_key(det)] = now + self.settings.cooldown_ms / 1000.0
+        self._recent_clicks.append((det.monitor_index, det.yes_x, det.yes_y,
+                                    now + self.settings.cooldown_ms / 1000.0))
         self._last_prompt_ts = now
         self._idle_alerted = False
         self.stats.record_click(det.monitor_index, det.confidence, ts=now)
@@ -272,13 +275,19 @@ class Engine:
         self.on_event(EngineEvent.CLICK, det)
 
     # --- cooldown ---
-    @staticmethod
-    def _region_key(det) -> tuple[int, int, int]:
-        # Quantise so tiny pixel jitter maps to the same region.
-        return (det.monitor_index, det.yes_x // 40, det.yes_y // 40)
+    # A prompt occupies a region ~this many px wide/tall; a new detection within
+    # this radius of a recent click is treated as the SAME prompt (no re-click).
+    COOLDOWN_RADIUS = 220
 
     def _in_cooldown(self, det) -> bool:
-        return self._cooldowns.get(self._region_key(det), 0.0) > time.time()
+        now = time.time()
+        for mi, x, y, exp in self._recent_clicks:
+            if exp <= now or mi != det.monitor_index:
+                continue
+            if abs(x - det.yes_x) <= self.COOLDOWN_RADIUS and \
+                    abs(y - det.yes_y) <= self.COOLDOWN_RADIUS:
+                return True
+        return False
 
     def _is_self_window(self, monitor, det) -> bool:
         """True if the click point lands inside the app's own window."""
@@ -292,8 +301,7 @@ class Engine:
 
     def _purge_cooldowns(self) -> None:
         now = time.time()
-        for k in [k for k, exp in self._cooldowns.items() if exp <= now]:
-            del self._cooldowns[k]
+        self._recent_clicks = [c for c in self._recent_clicks if c[3] > now]
 
     # --- rate cap ---
     def _rate_ok(self) -> bool:
